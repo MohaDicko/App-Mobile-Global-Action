@@ -1,73 +1,8 @@
 // ─── Store Zustand — Liste d'étiquettes à imprimer + Historique persistant ───
 import { Platform } from 'react-native';
 import { create } from 'zustand';
-import { persist, createJSONStorage, type StateStorage } from 'zustand/middleware';
-import * as FileSystem from 'expo-file-system/legacy';
 import * as SecureStore from 'expo-secure-store';
 import type { ILabelData } from '../services/etiquetteService';
-
-// ─── Storage résilient (Native FileSystem / SecureStore / Web localStorage / Memory fallback)
-const memoryFallback = new Map<string, string>();
-
-const getFilePath = (name: string): string | null => {
-  const dir = FileSystem.documentDirectory;
-  if (!dir) return null;
-  const safeName = name.replace(/[^a-zA-Z0-9._-]/g, '_');
-  return `${dir}${safeName}.json`;
-};
-
-const safeStorage: StateStorage = {
-  getItem: async (name: string): Promise<string | null> => {
-    try {
-      if (Platform.OS === 'web' && typeof window !== 'undefined' && window.localStorage) {
-        return window.localStorage.getItem(name);
-      }
-      const filePath = getFilePath(name);
-      if (filePath) {
-        const info = await FileSystem.getInfoAsync(filePath);
-        if (info.exists) {
-          return await FileSystem.readAsStringAsync(filePath);
-        }
-      }
-      return await SecureStore.getItemAsync(name);
-    } catch {
-      return memoryFallback.get(name) ?? null;
-    }
-  },
-  setItem: async (name: string, value: string): Promise<void> => {
-    memoryFallback.set(name, value);
-    try {
-      if (Platform.OS === 'web' && typeof window !== 'undefined' && window.localStorage) {
-        window.localStorage.setItem(name, value);
-        return;
-      }
-      const filePath = getFilePath(name);
-      if (filePath) {
-        await FileSystem.writeAsStringAsync(filePath, value);
-        return;
-      }
-      await SecureStore.setItemAsync(name, value);
-    } catch {
-      // Déjà conservé en mémoire dans memoryFallback
-    }
-  },
-  removeItem: async (name: string): Promise<void> => {
-    memoryFallback.delete(name);
-    try {
-      if (Platform.OS === 'web' && typeof window !== 'undefined' && window.localStorage) {
-        window.localStorage.removeItem(name);
-        return;
-      }
-      const filePath = getFilePath(name);
-      if (filePath) {
-        await FileSystem.deleteAsync(filePath, { idempotent: true });
-      }
-      await SecureStore.deleteItemAsync(name);
-    } catch {
-      // Ignorer
-    }
-  },
-};
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -101,142 +36,198 @@ interface IEtiquetteActions {
 
 type IEtiquetteStore = IEtiquetteState & IEtiquetteActions;
 
-const MAX_HISTORY_ITEMS = 200;
+const STORAGE_KEY = 'global_action_etiquettes_storage';
+const MAX_HISTORY_ITEMS = 100;
+
+// ─── Persistance compatible Web (localStorage) + Mobile (SecureStore) sans zustand/middleware ───
+
+const readInitialWebState = (): IEtiquetteState => {
+  try {
+    if (Platform.OS === 'web' && typeof window !== 'undefined' && window.localStorage) {
+      const raw = window.localStorage.getItem(STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as Partial<IEtiquetteState>;
+        return {
+          labels: Array.isArray(parsed.labels) ? parsed.labels : [],
+          history: Array.isArray(parsed.history) ? parsed.history : [],
+        };
+      }
+    }
+  } catch {
+    // Ignorer
+  }
+  return { labels: [], history: [] };
+};
+
+const savePersistedState = (state: IEtiquetteState): void => {
+  try {
+    const serialized = JSON.stringify({
+      labels: state.labels,
+      history: state.history,
+    });
+    if (Platform.OS === 'web' && typeof window !== 'undefined' && window.localStorage) {
+      window.localStorage.setItem(STORAGE_KEY, serialized);
+      return;
+    }
+    void SecureStore.setItemAsync(STORAGE_KEY, serialized).catch(() => {});
+  } catch {
+    // Ignorer
+  }
+};
 
 // ─── Store ───────────────────────────────────────────────────────────────────
 
-export const useEtiquetteStore = create<IEtiquetteStore>()(
-  persist(
-    (set, get) => ({
-      labels: [],
-      history: [],
+const initialState = readInitialWebState();
 
-      addLabel: (label) => {
-        const { labels, history } = get();
-        const nowIso = new Date().toISOString();
+export const useEtiquetteStore = create<IEtiquetteStore>((set, get) => ({
+  labels: initialState.labels,
+  history: initialState.history,
 
-        // 1. Mise à jour de la sélection active
-        const existingLabel = labels.find((l) => l.itemCode === label.itemCode);
-        const nextLabels = existingLabel
-          ? labels.map((l) =>
-              l.itemCode === label.itemCode
-                ? {
-                    ...l,
-                    itemName: label.itemName || l.itemName,
-                    barcode: label.barcode ?? l.barcode,
-                    price: label.price > 0 ? label.price : l.price,
-                    pcb: label.pcb ?? l.pcb,
-                    quantity: l.quantity + label.quantity,
-                  }
-                : l
-            )
-          : [...labels, label];
+  addLabel: (label) => {
+    const { labels, history } = get();
+    const nowIso = new Date().toISOString();
 
-        // 2. Enregistrement / mise à jour dans l'historique (plus récent en tête)
-        const existingHistory = history.find((h) => h.itemCode === label.itemCode);
-        const historyEntry: ILabelHistoryItem = existingHistory
-          ? {
-              ...existingHistory,
-              itemName: label.itemName || existingHistory.itemName,
-              barcode: label.barcode ?? existingHistory.barcode,
-              price: label.price > 0 ? label.price : existingHistory.price,
-              pcb: label.pcb ?? existingHistory.pcb,
-              quantity: label.quantity,
-              scannedAt: nowIso,
-            }
-          : {
-              ...label,
-              scannedAt: nowIso,
-            };
+    // 1. Mise à jour de la sélection active
+    const existingLabel = labels.find((l) => l.itemCode === label.itemCode);
+    const nextLabels = existingLabel
+      ? labels.map((l) =>
+          l.itemCode === label.itemCode
+            ? {
+                ...l,
+                itemName: label.itemName || l.itemName,
+                barcode: label.barcode ?? l.barcode,
+                price: label.price > 0 ? label.price : l.price,
+                pcb: label.pcb ?? l.pcb,
+                quantity: l.quantity + label.quantity,
+              }
+            : l
+        )
+      : [...labels, label];
 
-        const nextHistory = [
-          historyEntry,
-          ...history.filter((h) => h.itemCode !== label.itemCode),
-        ].slice(0, MAX_HISTORY_ITEMS);
-
-        set({ labels: nextLabels, history: nextHistory });
-      },
-
-      removeLabel: (itemCode) => {
-        set({ labels: get().labels.filter((l) => l.itemCode !== itemCode) });
-      },
-
-      updateQuantity: (itemCode, quantity) => {
-        if (quantity <= 0) {
-          get().removeLabel(itemCode);
-          return;
+    // 2. Enregistrement / mise à jour dans l'historique (plus récent en tête)
+    const existingHistory = history.find((h) => h.itemCode === label.itemCode);
+    const historyEntry: ILabelHistoryItem = existingHistory
+      ? {
+          ...existingHistory,
+          itemName: label.itemName || existingHistory.itemName,
+          barcode: label.barcode ?? existingHistory.barcode,
+          price: label.price > 0 ? label.price : existingHistory.price,
+          pcb: label.pcb ?? existingHistory.pcb,
+          quantity: label.quantity,
+          scannedAt: nowIso,
         }
-        set({
-          labels: get().labels.map((l) =>
-            l.itemCode === itemCode ? { ...l, quantity } : l
-          ),
-        });
-      },
+      : {
+          ...label,
+          scannedAt: nowIso,
+        };
 
-      clearLabels: () => {
-        set({ labels: [] });
-      },
+    const nextHistory = [
+      historyEntry,
+      ...history.filter((h) => h.itemCode !== label.itemCode),
+    ].slice(0, MAX_HISTORY_ITEMS);
 
-      restoreFromHistory: (itemCode) => {
-        const { history, labels } = get();
-        const entry = history.find((h) => h.itemCode === itemCode);
-        if (!entry) return;
+    const nextState = { labels: nextLabels, history: nextHistory };
+    set(nextState);
+    savePersistedState(nextState);
+  },
 
-        const existing = labels.find((l) => l.itemCode === entry.itemCode);
-        const cleanLabel: ILabelData = {
+  removeLabel: (itemCode) => {
+    const nextLabels = get().labels.filter((l) => l.itemCode !== itemCode);
+    set({ labels: nextLabels });
+    savePersistedState({ labels: nextLabels, history: get().history });
+  },
+
+  updateQuantity: (itemCode, quantity) => {
+    if (quantity <= 0) {
+      get().removeLabel(itemCode);
+      return;
+    }
+    const nextLabels = get().labels.map((l) =>
+      l.itemCode === itemCode ? { ...l, quantity } : l
+    );
+    set({ labels: nextLabels });
+    savePersistedState({ labels: nextLabels, history: get().history });
+  },
+
+  clearLabels: () => {
+    set({ labels: [] });
+    savePersistedState({ labels: [], history: get().history });
+  },
+
+  restoreFromHistory: (itemCode) => {
+    const { history, labels } = get();
+    const entry = history.find((h) => h.itemCode === itemCode);
+    if (!entry) return;
+
+    const existing = labels.find((l) => l.itemCode === entry.itemCode);
+    const cleanLabel: ILabelData = {
+      itemCode: entry.itemCode,
+      itemName: entry.itemName,
+      barcode: entry.barcode,
+      price: entry.price,
+      pcb: entry.pcb,
+      quantity: entry.quantity > 0 ? entry.quantity : 1,
+    };
+
+    const nextLabels = existing
+      ? labels.map((l) =>
+          l.itemCode === entry.itemCode
+            ? { ...l, quantity: l.quantity + cleanLabel.quantity }
+            : l
+        )
+      : [...labels, cleanLabel];
+
+    set({ labels: nextLabels });
+    savePersistedState({ labels: nextLabels, history });
+  },
+
+  restoreAllHistory: () => {
+    const { history, labels } = get();
+    if (history.length === 0) return;
+
+    const merged = [...labels];
+    for (const entry of history) {
+      const idx = merged.findIndex((l) => l.itemCode === entry.itemCode);
+      if (idx === -1) {
+        merged.push({
           itemCode: entry.itemCode,
           itemName: entry.itemName,
           barcode: entry.barcode,
           price: entry.price,
           pcb: entry.pcb,
           quantity: entry.quantity > 0 ? entry.quantity : 1,
-        };
-
-        if (existing) {
-          set({
-            labels: labels.map((l) =>
-              l.itemCode === entry.itemCode
-                ? { ...l, quantity: l.quantity + cleanLabel.quantity }
-                : l
-            ),
-          });
-        } else {
-          set({ labels: [...labels, cleanLabel] });
-        }
-      },
-
-      restoreAllHistory: () => {
-        const { history, labels } = get();
-        if (history.length === 0) return;
-
-        const merged = [...labels];
-        for (const entry of history) {
-          const idx = merged.findIndex((l) => l.itemCode === entry.itemCode);
-          if (idx === -1) {
-            merged.push({
-              itemCode: entry.itemCode,
-              itemName: entry.itemName,
-              barcode: entry.barcode,
-              price: entry.price,
-              pcb: entry.pcb,
-              quantity: entry.quantity > 0 ? entry.quantity : 1,
-            });
-          }
-        }
-        set({ labels: merged });
-      },
-
-      removeHistoryItem: (itemCode) => {
-        set({ history: get().history.filter((h) => h.itemCode !== itemCode) });
-      },
-
-      clearHistory: () => {
-        set({ history: [] });
-      },
-    }),
-    {
-      name: 'global_action_etiquettes_storage',
-      storage: createJSONStorage(() => safeStorage),
+        });
+      }
     }
-  )
-);
+    set({ labels: merged });
+    savePersistedState({ labels: merged, history });
+  },
+
+  removeHistoryItem: (itemCode) => {
+    const nextHistory = get().history.filter((h) => h.itemCode !== itemCode);
+    set({ history: nextHistory });
+    savePersistedState({ labels: get().labels, history: nextHistory });
+  },
+
+  clearHistory: () => {
+    set({ history: [] });
+    savePersistedState({ labels: get().labels, history: [] });
+  },
+}));
+
+// Hydratation asynchrone sur mobile (Android / iOS) au chargement du module
+if (Platform.OS !== 'web') {
+  SecureStore.getItemAsync(STORAGE_KEY)
+    .then((raw) => {
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as Partial<IEtiquetteState>;
+      const current = useEtiquetteStore.getState();
+      if (current.labels.length === 0 && current.history.length === 0) {
+        useEtiquetteStore.setState({
+          labels: Array.isArray(parsed.labels) ? parsed.labels : [],
+          history: Array.isArray(parsed.history) ? parsed.history : [],
+        });
+      }
+    })
+    .catch(() => {});
+}

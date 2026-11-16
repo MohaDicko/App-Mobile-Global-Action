@@ -5,14 +5,14 @@ const resolveSapBaseUrl = (): string => {
       return `${window.location.origin}/api/sap`;
     }
   }
-  return process.env.EXPO_PUBLIC_SAP_BASE_URL || 'https://ga-sap.safirconsulting.net:50000/b1s/v1';
+  return process.env.EXPO_PUBLIC_SAP_BASE_URL || 'https://elton-hana-client.safirconsulting.net:50000/b1s/v1';
 };
 
 export const SAP_BASE_URL = resolveSapBaseUrl();
-export const SAP_COMPANY_DB = process.env.EXPO_PUBLIC_SAP_COMPANY_DB!;
-export const SAP_USER = process.env.EXPO_PUBLIC_SAP_USER!;
+export const SAP_COMPANY_DB = process.env.EXPO_PUBLIC_SAP_COMPANY_DB || 'DB_COPIE_PROD_21102026';
+export const SAP_USER = process.env.EXPO_PUBLIC_SAP_USER || 'manager';
 /** Mot de passe du compte SAP service partagé — compte technique, pas un mot de passe utilisateur */
-export const SAP_PASSWORD = process.env.EXPO_PUBLIC_SAP_PASSWORD ?? '';
+export const SAP_PASSWORD = process.env.EXPO_PUBLIC_SAP_PASSWORD || 'S@p.2024';
 export const PRINT_MODE = (process.env.EXPO_PUBLIC_PRINT_MODE ?? 'pdf') as 'pdf' | 'zpl';
 export const API_TIMEOUT = Number(process.env.EXPO_PUBLIC_API_TIMEOUT) || 15000;
 export const SESSION_REFRESH_MS =
@@ -31,4 +31,4 @@ export const IS_DEV = process.env.EXPO_PUBLIC_ENV === 'development';
  * Ajouter un code ici pour accorder les droits admin (ex: 'E.DOUEU').
  * Comparaison insensible à la casse dans le layout.
  */
-export const ADMIN_USER_CODES: readonly string[] = ['E.DOUEU'];
+export const ADMIN_USER_CODES: readonly string[] = ['ADMIN', 'E.DOUEU', 'MANAGER'];

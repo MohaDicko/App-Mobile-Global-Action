@@ -1,4 +1,4 @@
-﻿// â”€â”€â”€ Service Ã‰tiquettes â€” GÃ©nÃ©ration HTML + Impression A4 â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// â”€â”€â”€ Service Ã‰tiquettes â€” GÃ©nÃ©ration HTML + Impression A4 â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Format unique : A4 Â· 3 colonnes Ã— 7 rangÃ©es = 21 Ã©tiquettes par feuille
 import { Platform } from 'react-native';
 import * as Print from 'expo-print';
