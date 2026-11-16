@@ -23,17 +23,22 @@ export const buildPurchaseDeliveryNote = (
   cardCode: string,
   lines: IPurchaseDeliveryNoteLine[],
   /** Nom de l'utilisateur connecté — injecté dans Comments ET U_UtilisateurMob */
-  userName?: string
+  userName?: string,
+  /** Numéro de facture fournisseur saisi lors de la réception — injecté dans NumAtCard et Comments */
+  invoiceNumber?: string
 ): IPurchaseDeliveryNote => {
   assertLinesNotEmpty(lines, 'PurchaseDeliveryNote');
   const today = new Date().toLocaleDateString('fr-FR', {
     day: '2-digit', month: '2-digit', year: 'numeric',
     hour: '2-digit', minute: '2-digit',
   });
-  const comments = `Réception via GlobalAction Mobile | Utilisateur : ${userName ?? 'Inconnu'} | ${today}`;
+  const trimmedInvoice = invoiceNumber?.trim() ?? '';
+  const invoiceSuffix = trimmedInvoice ? ` | N° Facture : ${trimmedInvoice}` : '';
+  const comments = `Réception via GlobalAction Mobile | Utilisateur : ${userName ?? 'Inconnu'} | ${today}${invoiceSuffix}`;
   return {
     CardCode: cardCode,
     DocDate: formatSapDate(),
+    ...(trimmedInvoice && { NumAtCard: trimmedInvoice }),
     Comments: comments,
     ...(userName && { U_UtilisateurMob: userName }),
     DocumentLines: lines.map((line) => ({

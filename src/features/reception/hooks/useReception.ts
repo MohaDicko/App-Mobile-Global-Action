@@ -29,8 +29,14 @@ export const useCreateDeliveryNote = () => {
     mutationFn: (params: {
       cardCode: string;
       lines: IPurchaseDeliveryNoteLine[];
+      invoiceNumber?: string;
     }) =>
-      receptionService.createDeliveryNote(params.cardCode, params.lines, userName),
+      receptionService.createDeliveryNote(
+        params.cardCode,
+        params.lines,
+        userName,
+        params.invoiceNumber
+      ),
     onSuccess: (data, variables) => {
       queryClient.invalidateQueries({ queryKey: ['reception'] });
       queryClient.invalidateQueries({ queryKey: ['commandes'] });

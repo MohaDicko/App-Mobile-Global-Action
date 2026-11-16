@@ -42,3 +42,5 @@ codex-*
 # Local notes and tooling not needed in the mobile build
 REQUETES_SAP_PRODUCTION.md
 sap-proxy.js
+vercel.json
+api/

@@ -24,10 +24,18 @@ export const apiClient = axios.create({
 });
 
 // ── Interceptor REQUEST : injection du cookie de session SAP ─────────────────
-apiClient.interceptors.request.use((config) => {
-  const session = sapAuth.getSession();
+apiClient.interceptors.request.use(async (config) => {
+  let session = sapAuth.getSession();
+  if (!session && config.url !== '/Login') {
+    await sapAuth.ensureSession().catch(() => {});
+    session = sapAuth.getSession();
+  }
   if (session) {
-    config.headers['Cookie'] = `B1SESSION=${session}`;
+    if (typeof window === 'undefined') {
+      config.headers['Cookie'] = `B1SESSION=${session}`;
+    }
+    config.headers['B1SESSION'] = session;
+    config.headers['X-B1SESSION'] = session;
   }
   return config;
 });
@@ -53,4 +61,3 @@ apiClient.interceptors.response.use(
     return Promise.reject(error);
   }
 );
-

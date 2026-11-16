@@ -1,19 +1,34 @@
 // ─── Écran Impression Étiquettes ──────────────────────────────────────────────
 import React, { useState, useCallback } from 'react';
-import { View, FlatList, StyleSheet, KeyboardAvoidingView, Platform } from 'react-native';
-import { Text } from 'react-native-paper';
+import { View, FlatList, StyleSheet, KeyboardAvoidingView, Platform, Pressable } from 'react-native';
+import { Text, Portal, Modal, Divider, IconButton } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import Toast from 'react-native-toast-message';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { COLORS } from '@core/config/theme';
-import { QuantityStepper, AppButton } from '@shared/components/ui';
+import { QuantityStepper, AppButton, AppModal } from '@shared/components/ui';
 import { ArticleSearchBar } from '@shared/components';
 import type { IArticle } from '@shared/types';
 import { itemService } from '@shared/services';
-import { useEtiquetteStore } from '@features/etiquettes/store/etiquetteStore';
+import { useEtiquetteStore, type ILabelHistoryItem } from '@features/etiquettes/store/etiquetteStore';
 import { etiquetteService } from '@features/etiquettes/services/etiquetteService';
 import { extractSapErrorMessage } from '@shared/utils';
 import LabelItem from '@features/etiquettes/components/LabelItem';
+
+const formatHistoryDate = (iso: string): string => {
+  if (!iso) return '';
+  try {
+    return new Date(iso).toLocaleDateString('fr-FR', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  } catch {
+    return '';
+  }
+};
 
 // ─── Composant ───────────────────────────────────────────────────────────────
 
@@ -23,12 +38,21 @@ const EtiquettesScreen = () => {
   const [loadingArticle, setLoadingArticle] = useState(false);
   const [labelQty, setLabelQty] = useState(1);
   const [printing, setPrinting] = useState(false);
+  const [historyVisible, setHistoryVisible] = useState(false);
+  const [confirmClearListVisible, setConfirmClearListVisible] = useState(false);
+  const [confirmClearHistoryVisible, setConfirmClearHistoryVisible] = useState(false);
 
-  // ── Store Zustand ──
+  // ── Store Zustand (persistant) ──
   const labels = useEtiquetteStore((s) => s.labels);
+  const history = useEtiquetteStore((s) => s.history);
   const addLabel = useEtiquetteStore((s) => s.addLabel);
   const removeLabel = useEtiquetteStore((s) => s.removeLabel);
+  const updateQuantity = useEtiquetteStore((s) => s.updateQuantity);
   const clearLabels = useEtiquetteStore((s) => s.clearLabels);
+  const restoreFromHistory = useEtiquetteStore((s) => s.restoreFromHistory);
+  const restoreAllHistory = useEtiquetteStore((s) => s.restoreAllHistory);
+  const removeHistoryItem = useEtiquetteStore((s) => s.removeHistoryItem);
+  const clearHistory = useEtiquetteStore((s) => s.clearHistory);
 
   // ── Handlers ──
   // Récupère l'article complet (avec prix depuis ItemPrices) car la
@@ -67,11 +91,12 @@ const EtiquettesScreen = () => {
     setPrinting(true);
     try {
       await etiquetteService.printLabels(labels);
-      clearLabels();
+      // Ne jamais vider automatiquement les étiquettes après impression :
+      // en cas de problème d'impression ou d'incident, l'utilisateur conserve sa liste.
       Toast.show({
         type: 'success',
         text1: 'Impression lancée',
-        text2: "Les étiquettes ont été envoyées",
+        text2: 'Liste conservée — utilisez « Vider la liste » une fois terminé',
       });
     } catch (error) {
       Toast.show({
@@ -100,6 +125,45 @@ const EtiquettesScreen = () => {
     }
   };
 
+  const handleConfirmClearList = () => {
+    clearLabels();
+    setConfirmClearListVisible(false);
+    Toast.show({
+      type: 'info',
+      text1: 'Liste vidée',
+      text2: "Les articles restent disponibles dans l'Historique",
+    });
+  };
+
+  const handleConfirmClearHistory = () => {
+    clearHistory();
+    setConfirmClearHistoryVisible(false);
+    Toast.show({
+      type: 'info',
+      text1: 'Historique vidé',
+      text2: "L'historique des étiquettes a été effacé",
+    });
+  };
+
+  const handleRestoreOne = (entry: ILabelHistoryItem) => {
+    restoreFromHistory(entry.itemCode);
+    Toast.show({
+      type: 'success',
+      text1: 'Article restauré',
+      text2: `${entry.itemCode} ajouté à la liste d'impression`,
+    });
+  };
+
+  const handleRestoreAll = () => {
+    restoreAllHistory();
+    setHistoryVisible(false);
+    Toast.show({
+      type: 'success',
+      text1: 'Historique restauré',
+      text2: "Tous les articles de l'historique ont été chargés",
+    });
+  };
+
   const totalLabels = labels.reduce((sum, l) => sum + l.quantity, 0);
 
   // ── Render ──
@@ -118,14 +182,31 @@ const EtiquettesScreen = () => {
               <MaterialCommunityIcons name="printer" size={22} color={COLORS.pink} />
             </View>
             <Text style={styles.headerTitle}>Impression Étiquettes</Text>
+            <Pressable
+              onPress={() => setHistoryVisible(true)}
+              style={({ pressed }) => [
+                styles.historyHeaderBtn,
+                pressed && styles.historyHeaderBtnPressed,
+              ]}
+            >
+              <MaterialCommunityIcons name="history" size={18} color={COLORS.primary} />
+              <Text style={styles.historyHeaderBtnText}>
+                Historique ({history.length})
+              </Text>
+            </Pressable>
           </View>
         </View>
 
         <FlatList
           data={labels}
           keyExtractor={(item) => item.itemCode}
+          keyboardShouldPersistTaps="handled"
           renderItem={({ item }) => (
-            <LabelItem label={item} onRemove={removeLabel} />
+            <LabelItem
+              label={item}
+              onRemove={removeLabel}
+              onUpdateQuantity={updateQuantity}
+            />
           )}
           ListHeaderComponent={
             <View style={styles.formSection}>
@@ -196,17 +277,33 @@ const EtiquettesScreen = () => {
                 </View>
               )}
 
-              {/* Titre liste */}
+              {/* Titre liste + bouton Vider la liste manuellement */}
               {labels.length > 0 && (
                 <View style={styles.cartHeader}>
-                  <MaterialCommunityIcons
-                    name="tag-multiple"
-                    size={20}
-                    color={COLORS.textSecondary}
-                  />
-                  <Text style={styles.cartTitle}>
-                    Étiquettes à imprimer ({totalLabels})
-                  </Text>
+                  <View style={styles.cartHeaderLeft}>
+                    <MaterialCommunityIcons
+                      name="tag-multiple"
+                      size={20}
+                      color={COLORS.textSecondary}
+                    />
+                    <Text style={styles.cartTitle}>
+                      Étiquettes à imprimer ({totalLabels})
+                    </Text>
+                  </View>
+                  <Pressable
+                    onPress={() => setConfirmClearListVisible(true)}
+                    style={({ pressed }) => [
+                      styles.clearListBtn,
+                      pressed && styles.clearListBtnPressed,
+                    ]}
+                  >
+                    <MaterialCommunityIcons
+                      name="trash-can-outline"
+                      size={16}
+                      color={COLORS.danger}
+                    />
+                    <Text style={styles.clearListBtnText}>Vider la liste</Text>
+                  </Pressable>
                 </View>
               )}
             </View>
@@ -219,10 +316,20 @@ const EtiquettesScreen = () => {
                   size={48}
                   color={COLORS.textDisabled}
                 />
-                <Text style={styles.emptyTitle}>Aucune étiquette</Text>
+                <Text style={styles.emptyTitle}>Aucune étiquette dans la liste</Text>
                 <Text style={styles.emptySubtitle}>
-                  Scannez un article pour préparer ses étiquettes
+                  Scannez un article ou consultez l'historique ({history.length}) pour recharger vos articles précédents
                 </Text>
+                {history.length > 0 && (
+                  <View style={styles.emptyHistoryBtnWrap}>
+                    <AppButton
+                      label={`CONSULTER L'HISTORIQUE (${history.length})`}
+                      onPress={() => setHistoryVisible(true)}
+                      variant="outline"
+                      icon="history"
+                    />
+                  </View>
+                )}
               </View>
             ) : null
           }
@@ -261,6 +368,123 @@ const EtiquettesScreen = () => {
             </View>
           </View>
         )}
+
+        {/* Modale Historique des étiquettes flashées */}
+        <Portal>
+          <Modal
+            visible={historyVisible}
+            onDismiss={() => setHistoryVisible(false)}
+            contentContainerStyle={styles.historyModal}
+          >
+            <View style={styles.historyModalHeader}>
+              <View style={styles.historyModalTitleRow}>
+                <MaterialCommunityIcons name="history" size={22} color={COLORS.primary} />
+                <Text style={styles.historyModalTitle}>
+                  Historique des étiquettes ({history.length})
+                </Text>
+              </View>
+              <IconButton
+                icon="close"
+                size={20}
+                onPress={() => setHistoryVisible(false)}
+              />
+            </View>
+
+            <Text style={styles.historyModalSubtitle}>
+              Les articles flashés sont conservés automatiquement en cas d'incident d'impression. Vous pouvez les recharger ou vider l'historique manuellement.
+            </Text>
+
+            {history.length === 0 ? (
+              <View style={styles.historyEmpty}>
+                <MaterialCommunityIcons
+                  name="history"
+                  size={40}
+                  color={COLORS.textDisabled}
+                />
+                <Text style={styles.historyEmptyText}>
+                  Aucun article dans l'historique
+                </Text>
+              </View>
+            ) : (
+              <>
+                <FlatList
+                  data={history}
+                  keyExtractor={(item) => item.itemCode}
+                  style={styles.historyList}
+                  ItemSeparatorComponent={() => <Divider />}
+                  renderItem={({ item }) => (
+                    <View style={styles.historyItem}>
+                      <View style={styles.historyItemInfo}>
+                        <Text style={styles.historyItemCode}>{item.itemCode}</Text>
+                        <Text style={styles.historyItemName} numberOfLines={1}>
+                          {item.itemName}
+                        </Text>
+                        <Text style={styles.historyItemMeta}>
+                          {item.price > 0 ? `${Math.round(item.price).toLocaleString('fr-FR')} FCFA · ` : ''}
+                          Qté : x{item.quantity}
+                          {item.scannedAt ? ` · ${formatHistoryDate(item.scannedAt)}` : ''}
+                        </Text>
+                      </View>
+                      <Pressable
+                        onPress={() => handleRestoreOne(item)}
+                        style={({ pressed }) => [
+                          styles.restoreOneBtn,
+                          pressed && styles.restoreOneBtnPressed,
+                        ]}
+                      >
+                        <MaterialCommunityIcons name="plus-circle-outline" size={16} color={COLORS.primary} />
+                        <Text style={styles.restoreOneBtnText}>Ajouter</Text>
+                      </Pressable>
+                      <IconButton
+                        icon="trash-can-outline"
+                        iconColor={COLORS.danger}
+                        size={18}
+                        onPress={() => removeHistoryItem(item.itemCode)}
+                      />
+                    </View>
+                  )}
+                />
+
+                <View style={styles.historyModalActions}>
+                  <AppButton
+                    label="TOUT RESTAURER DANS LA LISTE"
+                    onPress={handleRestoreAll}
+                    variant="primary"
+                    icon="restore"
+                    fullWidth
+                  />
+                  <AppButton
+                    label="VIDER L'HISTORIQUE"
+                    onPress={() => setConfirmClearHistoryVisible(true)}
+                    variant="outline"
+                    icon="delete-sweep-outline"
+                    fullWidth
+                  />
+                </View>
+              </>
+            )}
+          </Modal>
+        </Portal>
+
+        {/* Confirmation vidage liste active */}
+        <AppModal
+          visible={confirmClearListVisible}
+          title="Vider la liste d'impression ?"
+          message={`Voulez-vous retirer les ${labels.length} article${labels.length > 1 ? 's' : ''} (${totalLabels} étiquette${totalLabels > 1 ? 's' : ''}) de la liste à imprimer ?\n\nVous pourrez toujours les retrouver dans l'Historique.`}
+          confirmLabel="Vider la liste"
+          onConfirm={handleConfirmClearList}
+          onCancel={() => setConfirmClearListVisible(false)}
+        />
+
+        {/* Confirmation vidage historique */}
+        <AppModal
+          visible={confirmClearHistoryVisible}
+          title="Vider tout l'historique ?"
+          message={`Voulez-vous effacer définitivement l'historique des ${history.length} article${history.length > 1 ? 's' : ''} flashé${history.length > 1 ? 's' : ''} ?`}
+          confirmLabel="Effacer l'historique"
+          onConfirm={handleConfirmClearHistory}
+          onCancel={() => setConfirmClearHistoryVisible(false)}
+        />
       </View>
     </KeyboardAvoidingView>
     </SafeAreaView>
@@ -292,8 +516,8 @@ const styles = StyleSheet.create({
   headerContent: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    paddingHorizontal: 20,
+    gap: 10,
+    paddingHorizontal: 16,
     paddingVertical: 14,
   },
   headerIconWrap: {
@@ -304,10 +528,29 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   headerTitle: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: '800',
     color: COLORS.textPrimary,
     flex: 1,
+  },
+  historyHeaderBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: COLORS.primary,
+    backgroundColor: `${COLORS.primary}10`,
+  },
+  historyHeaderBtnPressed: {
+    backgroundColor: `${COLORS.primary}24`,
+  },
+  historyHeaderBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: COLORS.primary,
   },
   listContent: {
     flexGrow: 1,
@@ -375,19 +618,46 @@ const styles = StyleSheet.create({
   cartHeader: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     marginTop: 16,
     marginBottom: 8,
     gap: 8,
+  },
+  cartHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flex: 1,
   },
   cartTitle: {
     fontSize: 16,
     fontWeight: '600',
     color: COLORS.textPrimary,
   },
+  clearListBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: COLORS.danger,
+    backgroundColor: `${COLORS.danger}10`,
+  },
+  clearListBtnPressed: {
+    backgroundColor: `${COLORS.danger}24`,
+  },
+  clearListBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: COLORS.danger,
+  },
   emptyState: {
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 48,
+    paddingHorizontal: 20,
     gap: 8,
   },
   emptyTitle: {
@@ -399,6 +669,9 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: COLORS.textDisabled,
     textAlign: 'center',
+  },
+  emptyHistoryBtnWrap: {
+    marginTop: 12,
   },
   bottomBar: {
     backgroundColor: COLORS.surface,
@@ -427,6 +700,95 @@ const styles = StyleSheet.create({
   },
   buttonFlex: {
     flex: 1,
+  },
+  historyModal: {
+    backgroundColor: COLORS.surface,
+    marginHorizontal: 16,
+    borderRadius: 16,
+    padding: 16,
+    maxHeight: '82%',
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  historyModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  historyModalTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flex: 1,
+  },
+  historyModalTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: COLORS.textPrimary,
+  },
+  historyModalSubtitle: {
+    fontSize: 12,
+    color: COLORS.textSecondary,
+    marginBottom: 12,
+  },
+  historyEmpty: {
+    paddingVertical: 32,
+    alignItems: 'center',
+    gap: 8,
+  },
+  historyEmptyText: {
+    fontSize: 14,
+    color: COLORS.textSecondary,
+  },
+  historyList: {
+    maxHeight: 340,
+  },
+  historyItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    gap: 6,
+  },
+  historyItemInfo: {
+    flex: 1,
+  },
+  historyItemCode: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: COLORS.primary,
+  },
+  historyItemName: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: COLORS.textPrimary,
+  },
+  historyItemMeta: {
+    fontSize: 12,
+    color: COLORS.textSecondary,
+    marginTop: 2,
+  },
+  restoreOneBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: COLORS.primary,
+    backgroundColor: `${COLORS.primary}10`,
+  },
+  restoreOneBtnPressed: {
+    backgroundColor: `${COLORS.primary}24`,
+  },
+  restoreOneBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: COLORS.primary,
+  },
+  historyModalActions: {
+    marginTop: 14,
+    gap: 8,
   },
 });
 

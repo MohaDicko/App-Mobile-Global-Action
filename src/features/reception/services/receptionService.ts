@@ -1,4 +1,4 @@
-﻿import { apiClient } from '@core/api/client';
+import { apiClient } from '@core/api/client';
 import { ENDPOINTS } from '@core/api/endpoints';
 import type {
   IPurchaseOrder,
@@ -89,9 +89,10 @@ const getOrderDetail = async (docEntry: number): Promise<IPurchaseOrder> => {
 const createDeliveryNote = async (
   cardCode: string,
   lines: IPurchaseDeliveryNoteLine[],
-  userName?: string
+  userName?: string,
+  invoiceNumber?: string
 ): Promise<IPurchaseDeliveryNote> => {
-  const body = buildPurchaseDeliveryNote(cardCode, lines, userName);
+  const body = buildPurchaseDeliveryNote(cardCode, lines, userName, invoiceNumber);
   const { data } = await apiClient.post<IPurchaseDeliveryNote>(
     ENDPOINTS.PURCHASE_DELIVERY_NOTES,
     body

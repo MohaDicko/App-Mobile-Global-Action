@@ -24,10 +24,13 @@ interface IReceptionState {
   selectedOrder: IPurchaseOrder | null;
   /** Lignes de réception (une par ligne du BC) */
   lines: IReceptionLine[];
+  /** Numéro de facture fournisseur renseigné lors de la réception */
+  invoiceNumber: string;
 }
 
 interface IReceptionActions {
   setOrder: (order: IPurchaseOrder, warehouseCode?: string) => void;
+  setInvoiceNumber: (invoiceNumber: string) => void;
   updateReceivedQuantity: (lineNum: number, quantity: number) => void;
   /** Marque toutes les lignes comme reçues (quantité restante) */
   receiveAll: () => void;
@@ -41,6 +44,7 @@ type IReceptionStore = IReceptionState & IReceptionActions;
 export const useReceptionStore = create<IReceptionStore>((set, get) => ({
   selectedOrder: null,
   lines: [],
+  invoiceNumber: '',
 
   setOrder: (order, warehouseCode) => {
     const normalizedWhs = (warehouseCode ?? '').trim().toUpperCase();
@@ -92,7 +96,11 @@ export const useReceptionStore = create<IReceptionStore>((set, get) => ({
         };
       });
 
-    set({ selectedOrder: order, lines });
+    set({ selectedOrder: order, lines, invoiceNumber: '' });
+  },
+
+  setInvoiceNumber: (invoiceNumber) => {
+    set({ invoiceNumber });
   },
 
   updateReceivedQuantity: (lineNum, quantity) => {
@@ -115,6 +123,6 @@ export const useReceptionStore = create<IReceptionStore>((set, get) => ({
   },
 
   clearReception: () => {
-    set({ selectedOrder: null, lines: [] });
+    set({ selectedOrder: null, lines: [], invoiceNumber: '' });
   },
 }));

@@ -9,36 +9,50 @@ import { ENDPOINTS } from './endpoints';
 
 let sessionCookie: string | null = null;
 let refreshTimer: ReturnType<typeof setInterval> | null = null;
+let loginInFlight: Promise<void> | null = null;
 
 // ─── Login compte service (interne) ──────────────────────────────────────────
 
 async function serviceLogin(): Promise<void> {
-  const url = `${SAP_BASE_URL}${ENDPOINTS.LOGIN}`;
-
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      CompanyDB: SAP_COMPANY_DB,
-      UserName: SAP_USER,
-      Password: SAP_PASSWORD,
-    }),
-  });
-
-  if (!response.ok) {
-    const body = await response.json().catch(() => ({}));
-    throw new Error(body?.error?.message?.value ?? `Erreur SAP ${response.status}`);
+  if (loginInFlight) {
+    return loginInFlight;
   }
+  loginInFlight = (async () => {
+    const url = `${SAP_BASE_URL}${ENDPOINTS.LOGIN}`;
 
-  const setCookieHeader = response.headers.get('set-cookie') ?? '';
-  const match = setCookieHeader.match(/B1SESSION=([^;]+)/);
-  if (!match) throw new Error('Session SAP introuvable dans la réponse');
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          CompanyDB: SAP_COMPANY_DB,
+          UserName: SAP_USER,
+          Password: SAP_PASSWORD,
+        }),
+      });
 
-  sessionCookie = match[1];
-  // Pas de persistance SecureStore — session en mémoire uniquement
-  _startRefreshTimer();
+      const body = await response.json().catch(() => ({}));
 
-  if (IS_DEV) console.log('[sapAuth] Compte service connecté');
+      if (!response.ok) {
+        throw new Error(body?.error?.message?.value ?? `Erreur SAP ${response.status}`);
+      }
+
+      const setCookieHeader = response.headers.get('set-cookie') ?? '';
+      const match = setCookieHeader.match(/B1SESSION=([^;]+)/);
+      // Sur navigateur web (Vercel), Set-Cookie n'est pas lisible via JS (W3C security).
+      // On extrait donc SessionId directement du JSON retourné par SAP Service Layer.
+      const sessionId = match ? match[1] : (body?.SessionId as string | undefined);
+      if (!sessionId) throw new Error('Session SAP introuvable dans la réponse');
+
+      sessionCookie = sessionId;
+      _startRefreshTimer();
+
+      if (IS_DEV) console.log('[sapAuth] Compte service connecté');
+    } finally {
+      loginInFlight = null;
+    }
+  })();
+  return loginInFlight;
 }
 
 // ─── Timer de rafraîchissement ────────────────────────────────────────────────
@@ -68,6 +82,12 @@ const sapAuth = {
   /** Retourne le cookie de session actuel (en mémoire) */
   getSession(): string | null {
     return sessionCookie;
+  },
+
+  /** Garantit qu'une session SAP Service Layer valide est active */
+  async ensureSession(): Promise<boolean> {
+    if (sessionCookie) return true;
+    return this.restoreSession();
   },
 
   /**

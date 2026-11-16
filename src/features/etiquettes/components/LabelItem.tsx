@@ -1,20 +1,21 @@
-﻿// â”€â”€â”€ Ligne d'Ã©tiquette Ã  imprimer â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Ligne d'étiquette à imprimer ────────────────────────────────────────────
 import React from 'react';
 import { View, StyleSheet } from 'react-native';
 import { Text, IconButton } from 'react-native-paper';
 import { COLORS } from '@core/config/theme';
 import type { ILabelData } from '../services/etiquetteService';
 
-// â”€â”€â”€ Types â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Types ───────────────────────────────────────────────────────────────────
 
 interface ILabelItemProps {
   label: ILabelData;
   onRemove: (itemCode: string) => void;
+  onUpdateQuantity?: (itemCode: string, quantity: number) => void;
 }
 
-// â”€â”€â”€ Composant â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Composant ───────────────────────────────────────────────────────────────
 
-const LabelItem = ({ label, onRemove }: ILabelItemProps) => {
+const LabelItem = ({ label, onRemove, onUpdateQuantity }: ILabelItemProps) => {
   return (
     <View style={styles.container}>
       <View style={styles.info}>
@@ -34,9 +35,31 @@ const LabelItem = ({ label, onRemove }: ILabelItemProps) => {
         )}
       </View>
 
-      <View style={styles.quantityBadge}>
-        <Text style={styles.quantityText}>x{label.quantity}</Text>
-      </View>
+      {onUpdateQuantity ? (
+        <View style={styles.stepperWrap}>
+          <IconButton
+            icon="minus"
+            size={16}
+            iconColor={COLORS.primary}
+            style={styles.stepperBtn}
+            onPress={() => onUpdateQuantity(label.itemCode, label.quantity - 1)}
+          />
+          <View style={styles.quantityBadge}>
+            <Text style={styles.quantityText}>x{label.quantity}</Text>
+          </View>
+          <IconButton
+            icon="plus"
+            size={16}
+            iconColor={COLORS.primary}
+            style={styles.stepperBtn}
+            onPress={() => onUpdateQuantity(label.itemCode, label.quantity + 1)}
+          />
+        </View>
+      ) : (
+        <View style={styles.quantityBadge}>
+          <Text style={styles.quantityText}>x{label.quantity}</Text>
+        </View>
+      )}
 
       <IconButton
         icon="trash-can-outline"
@@ -49,7 +72,7 @@ const LabelItem = ({ label, onRemove }: ILabelItemProps) => {
   );
 };
 
-// â”€â”€â”€ Styles â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Styles ──────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
   container: {
@@ -75,7 +98,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: COLORS.textPrimary,
     marginTop: 1,
-    textAlign: 'center',
   },
   price: {
     fontSize: 18,
@@ -87,20 +109,30 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: COLORS.textSecondary,
     fontFamily: 'monospace',
-    marginTop: 8,
+    marginTop: 4,
   },
   noBarcode: {
     fontSize: 11,
     color: COLORS.textDisabled,
     fontStyle: 'italic',
-    marginTop: 8,
+    marginTop: 4,
+  },
+  stepperWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginRight: 4,
+  },
+  stepperBtn: {
+    margin: 0,
+    width: 28,
+    height: 28,
   },
   quantityBadge: {
     backgroundColor: '#E3F2FD',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
     borderRadius: 8,
-    marginRight: 4,
+    marginHorizontal: 2,
   },
   quantityText: {
     fontSize: 15,
@@ -113,6 +145,3 @@ const styles = StyleSheet.create({
 });
 
 export default LabelItem;
-
-
-

@@ -44,6 +44,8 @@ export interface IPurchaseDeliveryNote {
   DocDate?: string;
   DocNum?: number;    // Retourné par SAP dans la réponse POST (numéro du document créé)
   DocEntry?: number;  // Retourné par SAP dans la réponse POST
+  /** Numéro de facture / référence fournisseur (champ standard SAP NumAtCard sur OPDN) */
+  NumAtCard?: string;
   /** Remarques libres — override des commentaires copiés du BC parent */
   Comments?: string;
   /** Traçabilité — nom de l'utilisateur app qui a créé le document (UDF SAP) */

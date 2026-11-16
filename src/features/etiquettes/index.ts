@@ -1,3 +1,3 @@
 // ─── Module Étiquettes — exports ─────────────────────────────────────────────
 export { etiquetteService } from './services/etiquetteService';
-export { useEtiquetteStore } from './store/etiquetteStore';
+export { useEtiquetteStore, type ILabelHistoryItem } from './store/etiquetteStore';

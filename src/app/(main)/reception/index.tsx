@@ -1,6 +1,6 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import { View, FlatList, StyleSheet, KeyboardAvoidingView, Platform, Pressable, RefreshControl } from 'react-native';
-import { Text, Portal, Modal, Searchbar, ActivityIndicator, Divider } from 'react-native-paper';
+import { Text, Portal, Modal, Searchbar, ActivityIndicator, Divider, TextInput } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { COLORS } from '@core/config/theme';
@@ -44,7 +44,9 @@ const ReceptionScreen = () => {
 
   const selectedOrder = useReceptionStore((s) => s.selectedOrder);
   const lines = useReceptionStore((s) => s.lines);
+  const invoiceNumber = useReceptionStore((s) => s.invoiceNumber);
   const setOrder = useReceptionStore((s) => s.setOrder);
+  const setInvoiceNumber = useReceptionStore((s) => s.setInvoiceNumber);
   const updateReceivedQuantity = useReceptionStore((s) => s.updateReceivedQuantity);
   const receiveAll = useReceptionStore((s) => s.receiveAll);
 
@@ -84,6 +86,7 @@ const ReceptionScreen = () => {
 
     createDeliveryNote({
       cardCode: selectedOrder.CardCode,
+      invoiceNumber: invoiceNumber.trim() || undefined,
       lines: activeLines.map((l) => ({
         ItemCode: l.itemCode,
         Quantity: l.receivedQuantity,
@@ -189,6 +192,27 @@ const ReceptionScreen = () => {
                   <View style={styles.orderInfoRow}>
                     <Text style={styles.orderLabel}>Lignes ouvertes</Text>
                     <Text style={styles.orderValue}>{lines.length}</Text>
+                  </View>
+
+                  <View style={styles.invoiceInputContainer}>
+                    <TextInput
+                      label="N° de facture fournisseur"
+                      placeholder="Ex: FAC-2026-001 (optionnel)"
+                      value={invoiceNumber}
+                      onChangeText={setInvoiceNumber}
+                      mode="outlined"
+                      dense
+                      left={<TextInput.Icon icon="file-document-edit-outline" />}
+                      right={
+                        invoiceNumber.length > 0 ? (
+                          <TextInput.Icon
+                            icon="close-circle"
+                            onPress={() => setInvoiceNumber('')}
+                          />
+                        ) : undefined
+                      }
+                      style={styles.invoiceInput}
+                    />
                   </View>
 
                   {lines.length > 0 && (
@@ -331,7 +355,7 @@ const ReceptionScreen = () => {
         <AppModal
           visible={confirmVisible}
           title="Confirmer la reception ?"
-          message={`Vous allez receptionner ${totalReceived} unite${totalReceived > 1 ? 's' : ''} sur ${activeLines.length} ligne${activeLines.length > 1 ? 's' : ''} du BC no${selectedOrder?.DocNum ?? '-'}.\n\nCette action est irreversible.`}
+          message={`Vous allez receptionner ${totalReceived} unite${totalReceived > 1 ? 's' : ''} sur ${activeLines.length} ligne${activeLines.length > 1 ? 's' : ''} du BC no${selectedOrder?.DocNum ?? '-'}.${invoiceNumber.trim() ? `\nN° Facture : ${invoiceNumber.trim()}` : ''}\n\nCette action est irreversible.`}
           confirmLabel="Valider"
           onConfirm={handleSendReception}
           onCancel={() => setConfirmVisible(false)}
@@ -420,6 +444,14 @@ const styles = StyleSheet.create({
     flex: 1,
     textAlign: 'right',
     marginLeft: 10,
+  },
+  invoiceInputContainer: {
+    marginTop: 6,
+    marginBottom: 4,
+  },
+  invoiceInput: {
+    backgroundColor: COLORS.background,
+    fontSize: 14,
   },
   loadingState: {
     padding: 24,

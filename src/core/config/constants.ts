@@ -1,5 +1,14 @@
 // ─── Configuration globale — chargée depuis les variables d'environnement ────
-export const SAP_BASE_URL = process.env.EXPO_PUBLIC_SAP_BASE_URL!;
+const resolveSapBaseUrl = (): string => {
+  if (typeof window !== 'undefined' && window.location?.hostname) {
+    if (window.location.hostname.includes('vercel.app')) {
+      return `${window.location.origin}/api/sap`;
+    }
+  }
+  return process.env.EXPO_PUBLIC_SAP_BASE_URL || 'https://ga-sap.safirconsulting.net:50000/b1s/v1';
+};
+
+export const SAP_BASE_URL = resolveSapBaseUrl();
 export const SAP_COMPANY_DB = process.env.EXPO_PUBLIC_SAP_COMPANY_DB!;
 export const SAP_USER = process.env.EXPO_PUBLIC_SAP_USER!;
 /** Mot de passe du compte SAP service partagé — compte technique, pas un mot de passe utilisateur */

@@ -1,5 +1,6 @@
 ﻿// â”€â”€â”€ Service Ã‰tiquettes â€” GÃ©nÃ©ration HTML + Impression A4 â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Format unique : A4 Â· 3 colonnes Ã— 7 rangÃ©es = 21 Ã©tiquettes par feuille
+import { Platform } from 'react-native';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import { LOGO_DATA_URL } from '../assets/logoBase64';
@@ -292,17 +293,162 @@ const generateLabelHTML = (
 
 // â”€â”€â”€ API publique â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-// Dimensions A4 en pixels Ã  72 dpi pour expo-print
+// Dimensions A4 en pixels à 72 dpi pour expo-print
 const A4_WIDTH_PX  = Math.round(210 * 72 / 25.4);  // 595
 const A4_HEIGHT_PX = Math.round(297 * 72 / 25.4);  // 842
 
+const printHtmlOnWeb = (html: string): Promise<void> =>
+  new Promise((resolve, reject) => {
+    try {
+      const styleMatch = html.match(/<style>([\s\S]*?)<\/style>/i);
+      const bodyMatch = html.match(/<body>([\s\S]*?)<\/body>/i);
+      const extractedCss = styleMatch ? styleMatch[1] : '';
+      const extractedBody = bodyMatch ? bodyMatch[1] : html;
+
+      document.getElementById('ga-web-print-style')?.remove();
+      document.getElementById('ga-web-print-root')?.remove();
+
+      const appRoot = document.getElementById('root');
+      const prevRootDisplay = appRoot ? appRoot.style.display : '';
+
+      const styleEl = document.createElement('style');
+      styleEl.id = 'ga-web-print-style';
+      styleEl.textContent = `
+        ${extractedCss}
+        #root {
+          display: none !important;
+        }
+        #ga-web-print-root {
+          display: block !important;
+          width: 100%;
+          min-height: 100vh;
+          background: #ffffff;
+          color: #111111;
+          z-index: 2147483647;
+        }
+        .ga-print-toolbar {
+          position: sticky;
+          top: 0;
+          z-index: 100;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 10px;
+          padding: 12px 16px;
+          background: #2DB34A;
+          color: #ffffff;
+          font-family: Arial, Helvetica, sans-serif;
+          box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+        }
+        .ga-print-toolbar-title {
+          font-size: 15px;
+          font-weight: 700;
+        }
+        .ga-print-toolbar-actions {
+          display: flex;
+          gap: 8px;
+        }
+        .ga-print-btn {
+          border: none;
+          border-radius: 8px;
+          padding: 9px 14px;
+          font-size: 14px;
+          font-weight: 700;
+          cursor: pointer;
+        }
+        .ga-print-btn-back {
+          background: rgba(255,255,255,0.2);
+          color: #ffffff;
+        }
+        .ga-print-btn-action {
+          background: #ffffff;
+          color: #2DB34A;
+        }
+        .ga-print-sheet-wrap {
+          padding: 8px;
+          background: #ffffff;
+        }
+        @media print {
+          #root,
+          .ga-print-toolbar {
+            display: none !important;
+          }
+          #ga-web-print-root,
+          .ga-print-sheet-wrap {
+            display: block !important;
+            padding: 0 !important;
+            margin: 0 !important;
+          }
+        }
+      `;
+
+      const container = document.createElement('div');
+      container.id = 'ga-web-print-root';
+      container.innerHTML = `
+        <div class="ga-print-toolbar">
+          <div class="ga-print-toolbar-title">Aperçu Planche d'Étiquettes A4</div>
+          <div class="ga-print-toolbar-actions">
+            <button type="button" id="ga-btn-reprint" class="ga-print-btn ga-print-btn-action">
+              🖨️ Imprimer / PDF
+            </button>
+            <button type="button" id="ga-btn-close-print" class="ga-print-btn ga-print-btn-back">
+              ✕ Retour
+            </button>
+          </div>
+        </div>
+        <div class="ga-print-sheet-wrap">
+          ${extractedBody}
+        </div>
+      `;
+
+      const cleanup = () => {
+        styleEl.remove();
+        container.remove();
+        if (appRoot) {
+          appRoot.style.display = prevRootDisplay;
+        }
+      };
+
+      if (appRoot) {
+        appRoot.style.display = 'none';
+      }
+      document.head.appendChild(styleEl);
+      document.body.appendChild(container);
+
+      document.getElementById('ga-btn-close-print')?.addEventListener('click', cleanup);
+      document.getElementById('ga-btn-reprint')?.addEventListener('click', () => {
+        window.print();
+      });
+
+      setTimeout(() => {
+        try {
+          window.print();
+          resolve();
+        } catch (e) {
+          cleanup();
+          reject(e);
+        }
+      }, 250);
+    } catch (e) {
+      reject(e);
+    }
+  });
+
 const printLabels = async (labels: ILabelData[]): Promise<void> => {
   const html = generateLabelHTML(labels, LOGO_DATA_URL);
+  if (Platform.OS === 'web') {
+    await printHtmlOnWeb(html);
+    return;
+  }
   await Print.printAsync({ html, width: A4_WIDTH_PX, height: A4_HEIGHT_PX });
 };
 
 const shareLabelsAsPDF = async (labels: ILabelData[]): Promise<void> => {
   const html = generateLabelHTML(labels, LOGO_DATA_URL);
+  if (Platform.OS === 'web') {
+    await printHtmlOnWeb(html);
+    return;
+  }
   const { uri } = await Print.printToFileAsync({
     html,
     width: A4_WIDTH_PX,
@@ -311,7 +457,7 @@ const shareLabelsAsPDF = async (labels: ILabelData[]): Promise<void> => {
   });
   await Sharing.shareAsync(uri, {
     mimeType: 'application/pdf',
-    dialogTitle: 'Partager les Ã©tiquettes',
+    dialogTitle: 'Partager les étiquettes',
   });
 };
 
