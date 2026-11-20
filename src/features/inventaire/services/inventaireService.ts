@@ -105,28 +105,71 @@ const chunk = <T>(items: T[], size: number): T[][] => {
   return chunks;
 };
 
+const hasLineInWarehouse = (doc: IInventoryCounting, normalizedWhs: string): boolean => {
+  const lines = doc.InventoryCountingLines ?? [];
+  return lines.some(
+    (line) => String(line.WarehouseCode ?? '').trim().toUpperCase() === normalizedWhs
+  );
+};
+
 const getCountings = async (warehouseCode?: string): Promise<IInventoryCounting[]> => {
-  if (!warehouseCode) {
+  const trimmedWhs = (warehouseCode ?? '').trim();
+  if (!trimmedWhs) {
     const { data } = await apiClient.get<ISapResponse<IInventoryCounting>>(
       ENDPOINTS.INVENTORY_COUNTINGS_OPEN
     );
-    return data.value;
+    return data.value ?? [];
   }
 
-  const escaped = warehouseCode.replace(/'/g, "''");
-  const { data } = await apiClient.post<{ value: Array<Record<string, unknown>> }>(
-    ENDPOINTS.SQL_INV_OPEN_LIST_WHS,
-    { ParamList: `WhsCode='${escaped}'` }
+  const normalizedWhs = trimmedWhs.toUpperCase();
+  const escaped = normalizedWhs.replace(/'/g, "''");
+
+  try {
+    const { data } = await apiClient.post<{ value: Array<Record<string, unknown>> }>(
+      ENDPOINTS.SQL_INV_OPEN_LIST_WHS,
+      { ParamList: `WhsCode='${escaped}'` }
+    );
+    const sqlRows = data.value ?? [];
+    if (sqlRows.length > 0) {
+      return sqlRows
+        .map((row) => ({
+          DocumentEntry: Number(row.DocumentEntry),
+          DocumentNumber: Number(row.DocumentNumber),
+          CountDate: toIsoDate(String(row.CountDate ?? '')),
+          DocumentStatus: 'cdsOpen' as const,
+          InventoryCountingLines: [],
+        }))
+        .sort((a, b) => b.CountDate.localeCompare(a.CountDate));
+    }
+  } catch {
+    // Repli OData si la SQLQuery n'est pas disponible sur la base de test
+  }
+
+  const { data: openRes } = await apiClient.get<ISapResponse<IInventoryCounting>>(
+    ENDPOINTS.INVENTORY_COUNTINGS_OPEN
   );
-  return data.value
-    .map((row) => ({
-      DocumentEntry: Number(row.DocumentEntry),
-      DocumentNumber: Number(row.DocumentNumber),
-      CountDate: toIsoDate(String(row.CountDate ?? '')),
-      DocumentStatus: 'cdsOpen' as const,
-      InventoryCountingLines: [],
-    }))
-    .sort((a, b) => b.CountDate.localeCompare(a.CountDate));
+  const openDocs = openRes.value ?? [];
+  if (openDocs.length === 0) return [];
+
+  const matched = await Promise.all(
+    openDocs.map(async (doc) => {
+      if ((doc.InventoryCountingLines ?? []).length > 0) {
+        return hasLineInWarehouse(doc, normalizedWhs) ? doc : null;
+      }
+      try {
+        const { data: detail } = await apiClient.get<IInventoryCountingRaw>(
+          ENDPOINTS.INVENTORY_COUNTING_DETAIL(doc.DocumentEntry)
+        );
+        return hasLineInWarehouse(detail, normalizedWhs) ? detail : null;
+      } catch {
+        return null;
+      }
+    })
+  );
+
+  return matched
+    .filter((doc): doc is IInventoryCounting => doc !== null)
+    .sort((a, b) => String(b.CountDate ?? '').localeCompare(String(a.CountDate ?? '')));
 };
 
 const getCountingDetail = async (docEntry: number): Promise<IInventoryCounting> => {
@@ -140,7 +183,7 @@ const getCountingDetail = async (docEntry: number): Promise<IInventoryCounting> 
       return { ...data, InventoryCountingLines: lines };
     }
   } catch {
-    // Some SAP Service Layer versions reject collection navigation on document lines.
+    // Certains SAP Service Layer refusent la navigation directe sur InventoryCountingLines
   }
 
   const lines = await fetchCountingLinesFromInlineNextLink(
@@ -166,23 +209,57 @@ const getBinLocations = async (binEntries: number[]): Promise<Map<number, string
   return map;
 };
 
+/**
+ * Met à jour une ou plusieurs lignes comptées au fur et à mesure dans SAP.
+ * Tente d'abord un PATCH partiel rapide (sans re-télécharger tout le document).
+ * Bascule sur le remplacement complet uniquement si le placeholder A09541 doit être retiré.
+ */
+const saveCountedLines = async (
+  docEntry: number,
+  updates: Array<{ lineNumber: number; quantity: number }>
+): Promise<void> => {
+  if (updates.length === 0) return;
+
+  try {
+    await apiClient.patch(`/InventoryCountings(${docEntry})`, {
+      InventoryCountingLines: updates.map((u) => ({
+        LineNumber: u.lineNumber,
+        CountedQuantity: Math.max(0, u.quantity),
+        Counted: 'tYES' as const,
+      })),
+    });
+    return;
+  } catch {
+    // Repli : chargement complet et retrait éventuel du placeholder A09541
+  }
+
+  const doc = await getCountingDetail(docEntry);
+  const updateMap = new Map(updates.map((u) => [u.lineNumber, Math.max(0, u.quantity)]));
+  const lines = doc.InventoryCountingLines
+    .filter((l) => !isPlaceholderLine(l))
+    .map((l) =>
+      updateMap.has(l.LineNumber)
+        ? {
+            LineNumber: l.LineNumber,
+            CountedQuantity: updateMap.get(l.LineNumber)!,
+            Counted: 'tYES' as const,
+          }
+        : { LineNumber: l.LineNumber }
+    );
+
+  await apiClient.patch(
+    `/InventoryCountings(${docEntry})`,
+    { InventoryCountingLines: lines },
+    INVENTORY_COUNTING_PATCH_CONFIG
+  );
+};
+
 const updateCountedLine = async (
   docEntry: number,
   lineNumber: number,
   quantity: number
 ): Promise<void> => {
-  const doc = await getCountingDetail(docEntry);
-  const lines = doc.InventoryCountingLines
-    .filter((l) => !isPlaceholderLine(l))
-    .map((l) =>
-      l.LineNumber === lineNumber
-        ? { LineNumber: l.LineNumber, CountedQuantity: quantity, Counted: 'tYES' as const }
-        : { LineNumber: l.LineNumber }
-    );
-
-  await apiClient.patch(`/InventoryCountings(${docEntry})`, {
-    InventoryCountingLines: lines,
-  }, INVENTORY_COUNTING_PATCH_CONFIG);
+  await saveCountedLines(docEntry, [{ lineNumber, quantity }]);
 };
 
 const getBinLocationsForWarehouse = async (
@@ -216,14 +293,16 @@ const addCountedItem = async (
   const newLine: Record<string, unknown> = {
     ItemCode: item.itemCode,
     WarehouseCode: item.warehouseCode,
-    CountedQuantity: item.quantity,
+    CountedQuantity: Math.max(0, item.quantity),
     Counted: 'tYES',
     ...(item.binEntry !== undefined && { BinEntry: item.binEntry }),
   };
 
-  await apiClient.patch(`/InventoryCountings(${docEntry})`, {
-    InventoryCountingLines: [...keptLines, newLine],
-  }, INVENTORY_COUNTING_PATCH_CONFIG);
+  await apiClient.patch(
+    `/InventoryCountings(${docEntry})`,
+    { InventoryCountingLines: [...keptLines, newLine] },
+    INVENTORY_COUNTING_PATCH_CONFIG
+  );
 };
 
 export const inventaireService = {
@@ -232,8 +311,6 @@ export const inventaireService = {
   getBinLocations,
   getBinLocationsForWarehouse,
   updateCountedLine,
+  saveCountedLines,
   addCountedItem,
 };
-
-
-

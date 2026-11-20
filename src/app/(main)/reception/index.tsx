@@ -29,7 +29,7 @@ const ReceptionScreen = () => {
   const assignedWarehouse = useAuthStore((s) => s.user?.warehouseCode ?? '');
   const [kpiWarehouse, setKpiWarehouse] = useState('');
   const orderWarehouse = isAdmin ? kpiWarehouse : assignedWarehouse;
-  const { kpis: receptionKpis, refresh: refreshKpis, refreshing: refreshingKpis } = useReceptionKpis(kpiWarehouse);
+  const { kpis: receptionKpis, refresh: refreshKpis, refreshing: refreshingKpis } = useReceptionKpis(orderWarehouse);
   const {
     data: quickOrders = [],
     isLoading: quickOrdersLoading,
@@ -53,6 +53,11 @@ const ReceptionScreen = () => {
   const { mutate: createDeliveryNote, isPending } = useCreateDeliveryNote();
 
   const handleOrderSelect = useCallback(async (order: IPurchaseOrder) => {
+    // Si les lignes sont déjà présentes sur le BC (chargées en une seule requête), affichage instantané !
+    if (Array.isArray(order.DocumentLines) && order.DocumentLines.length > 0) {
+      setOrder(order, orderWarehouse || undefined);
+      return;
+    }
     setLoadingDetail(true);
     try {
       const detail = await receptionService.getOrderDetail(order.DocEntry);

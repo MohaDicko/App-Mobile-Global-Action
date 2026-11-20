@@ -42,7 +42,7 @@ export const useWarehouseBins = (warehouseCode: string) =>
 
 // ─── Mutations ────────────────────────────────────────────────────────────────
 
-/** Met à jour la quantité d'une ligne déjà comptée (recomptage / cumul) */
+/** Met à jour la quantité d'une ligne déjà comptée (recomptage / cumul / qté 0) */
 export const useUpdateCountedLine = () => {
   const queryClient = useQueryClient();
 
@@ -61,8 +61,39 @@ export const useUpdateCountedLine = () => {
       queryClient.invalidateQueries({ queryKey: ['inventaire', 'open'] });
       Toast.show({
         type: 'success',
-        text1: 'Quantite mise a jour',
-        text2: 'Le comptage a ete sauvegarde dans SAP',
+        text1: 'Comptage enregistré',
+        text2: 'La ligne a été validée dans SAP',
+      });
+    },
+    onError: (error: Error) => {
+      Toast.show({
+        type: 'error',
+        text1: 'Erreur SAP',
+        text2: extractSapErrorMessage(error),
+      });
+    },
+  });
+};
+
+/** Valide / enregistre plusieurs lignes du document au fur et à mesure dans SAP */
+export const useSaveCountedLines = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({
+      docEntry,
+      updates,
+    }: {
+      docEntry: number;
+      updates: Array<{ lineNumber: number; quantity: number }>;
+    }) => inventaireService.saveCountedLines(docEntry, updates),
+    onSuccess: (_, { docEntry, updates }) => {
+      queryClient.invalidateQueries({ queryKey: ['inventaire', 'detail', docEntry] });
+      queryClient.invalidateQueries({ queryKey: ['inventaire', 'open'] });
+      Toast.show({
+        type: 'success',
+        text1: 'Document validé au fur et à mesure',
+        text2: `${updates.length} ligne${updates.length > 1 ? 's' : ''} enregistrée${updates.length > 1 ? 's' : ''} dans SAP`,
       });
     },
     onError: (error: Error) => {
@@ -98,28 +129,27 @@ export const useAddCountedItem = () => {
       queryClient.invalidateQueries({ queryKey: ['inventaire', 'open'] });
       Toast.show({
         type: 'success',
-        text1: 'Article enregistre',
-        text2: `${itemCode} ajoute au comptage`,
+        text1: 'Article enregistré',
+        text2: `${itemCode} ajouté au comptage`,
       });
     },
     onError: (error: Error, { itemCode }) => {
-      // SAP -5002 : un article ne peut être que dans UN inventaire ouvert à la fois (par magasin)
-      const sapError = (error as { response?: { data?: { error?: { code?: number; message?: { value?: string } } } } })
-        .response?.data?.error;
+      const sapError = (
+        error as {
+          response?: { data?: { error?: { code?: number; message?: { value?: string } } } };
+        }
+      ).response?.data?.error;
       const isDuplicateInOpenDoc =
         sapError?.code === -5002 &&
         (sapError.message?.value ?? '').includes('already been added');
 
       Toast.show({
         type: 'error',
-        text1: isDuplicateInOpenDoc ? 'Article deja en cours de comptage' : 'Erreur SAP',
+        text1: isDuplicateInOpenDoc ? 'Article déjà en cours de comptage' : 'Erreur SAP',
         text2: isDuplicateInOpenDoc
-          ? `${itemCode} figure deja dans un autre inventaire ouvert de ce magasin`
+          ? `${itemCode} figure déjà dans un autre inventaire ouvert de ce magasin`
           : extractSapErrorMessage(error),
       });
     },
   });
 };
-
-// NOTE : la validation de l'inventaire (InventoryPostings) se fait uniquement
-// dans SAP Desktop — décision client 2026-06-12. L'app ne fait que compter.

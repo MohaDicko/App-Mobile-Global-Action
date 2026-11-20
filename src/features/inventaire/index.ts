@@ -6,6 +6,7 @@ export {
   useBinLocations,
   useWarehouseBins,
   useUpdateCountedLine,
+  useSaveCountedLines,
   useAddCountedItem,
 } from './hooks/useInventaire';
 export { useInventaireStore } from './store/inventaireStore';

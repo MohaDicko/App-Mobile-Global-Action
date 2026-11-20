@@ -113,4 +113,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default ReceptionLineItem;
+export default React.memo(ReceptionLineItem);

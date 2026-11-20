@@ -15,6 +15,7 @@ export const useOpenOrdersForReception = (warehouseCode?: string) => {
   return useQuery<IPurchaseOrder[]>({
     queryKey: ['reception', 'open-orders', normalizedWhs],
     queryFn: () => receptionService.getOpenOrders(normalizedWhs || undefined),
+    staleTime: 60_000,
   });
 };
 

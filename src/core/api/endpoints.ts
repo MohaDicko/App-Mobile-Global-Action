@@ -51,7 +51,8 @@ export const ENDPOINTS = {
 
   // Commandes fournisseurs
   PURCHASE_ORDERS: '/PurchaseOrders',
-  PURCHASE_ORDERS_OPEN: "/PurchaseOrders?$filter=DocumentStatus eq 'bost_Open'&$select=DocEntry,DocNum,CardCode,CardName,DocDate,DocDueDate,DocTotal,NumAtCard,Comments,DocumentStatus&$orderby=DocDate desc",
+  PURCHASE_ORDERS_OPEN: "/PurchaseOrders?$filter=DocumentStatus eq 'bost_Open'&$select=DocEntry,DocNum,CardCode,CardName,DocDate,DocDueDate,DocTotal,NumAtCard,Comments,DocumentStatus,DocumentLines&$orderby=DocDate desc&$top=100",
+  PURCHASE_ORDERS_OPEN_HEADERS: "/PurchaseOrders?$filter=DocumentStatus eq 'bost_Open'&$select=DocEntry,DocNum,CardCode,CardName,DocDate,DocDueDate,DocTotal,NumAtCard,Comments,DocumentStatus&$orderby=DocDate desc&$top=100",
   // SAP B1 inclut DocumentLines automatiquement sur GET par clé — $expand inutile et rejeté
   PURCHASE_ORDER_DETAIL: (entry: number) => `/PurchaseOrders(${entry})`,
 
